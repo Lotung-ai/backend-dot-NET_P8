@@ -1,5 +1,6 @@
 ﻿using GpsUtil.Location;
 using Microsoft.AspNetCore.Mvc;
+using TourGuide.Services;
 using TourGuide.Services.Interfaces;
 using TourGuide.Users;
 using TripPricer;
@@ -11,10 +12,12 @@ namespace TourGuide.Controllers;
 public class TourGuideController : ControllerBase
 {
     private readonly ITourGuideService _tourGuideService;
+    private readonly IRewardsService _rewardsService;
 
-    public TourGuideController(ITourGuideService tourGuideService)
+    public TourGuideController(ITourGuideService tourGuideService, IRewardsService rewardsService)
     {
         _tourGuideService = tourGuideService;
+        _rewardsService = rewardsService;
     }
 
     [HttpGet("getLocation")]
@@ -34,11 +37,40 @@ public class TourGuideController : ControllerBase
     // The reward points for visiting each Attraction.
     //    Note: Attraction reward points can be gathered from RewardsCentral
     [HttpGet("getNearbyAttractions")]
-    public ActionResult<List<Attraction>> GetNearbyAttractions([FromQuery] string userName)
+    public ActionResult<IEnumerable<object>> GetNearbyAttractions([FromQuery] string userName)
     {
-        var visitedLocation = _tourGuideService.GetUserLocation(GetUser(userName));
-        var attractions = _tourGuideService.GetNearByAttractions(visitedLocation);
-        return Ok(attractions);
+        // Retrieve the user
+        User user = _tourGuideService.GetUser(userName);
+        if (user == null)
+        {
+            return NotFound($"User '{userName}' not found.");
+        }
+
+        // Retrieve the user's last visited location
+        VisitedLocation visitedLocation = _tourGuideService.GetUserLocation(user);
+
+        // Retrieve the closest attractions
+        List<Attraction> closestAttractions = _tourGuideService.GetNearByAttractions(visitedLocation);
+
+        // Create the result object
+        var result = closestAttractions.Select(attraction => new
+        {
+            AttractionName = attraction.AttractionName,
+            AttractionLocation = new
+            {
+                Latitude = attraction.Latitude,
+                Longitude = attraction.Longitude
+            },
+            UserLocation = new
+            {
+                Latitude = visitedLocation.Location.Latitude,
+                Longitude = visitedLocation.Location.Longitude
+            },
+            Distance = _rewardsService.GetDistance(attraction, visitedLocation.Location),
+            RewardPoints = _rewardsService.GetRewardPoints(attraction, user)
+        });
+
+        return Ok(result);
     }
 
     [HttpGet("getRewards")]

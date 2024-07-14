@@ -51,7 +51,7 @@ public class TourGuideService : ITourGuideService
 
     public VisitedLocation GetUserLocation(User user)
     {
-        return user.VisitedLocations.Any() ? user.GetLastVisitedLocation() : TrackUserLocation(user);
+        return user.VisitedLocations.Any() ? user.GetLastVisitedLocation() : TrackUserLocation(user).Result;
     }
 
     public User GetUser(string userName)
@@ -82,17 +82,37 @@ public class TourGuideService : ITourGuideService
         return providers;
     }
 
-    public VisitedLocation TrackUserLocation(User user)
+    public async Task<VisitedLocation> TrackUserLocation(User user)
     {
-        VisitedLocation visitedLocation = _gpsUtil.GetUserLocation(user.UserId);
+        VisitedLocation visitedLocation = await Task.Run(() => _gpsUtil.GetUserLocation(user.UserId));
         user.AddToVisitedLocations(visitedLocation);
-        _rewardsService.CalculateRewards(user);
+        await _rewardsService.CalculateRewards(user);
         return visitedLocation;
     }
 
+
     public List<Attraction> GetNearByAttractions(VisitedLocation visitedLocation)
     {
-        List<Attraction> nearbyAttractions = new ();
+        List<Attraction> attractions = _gpsUtil.GetAttractions();
+
+        // Calculate the distance to each attraction and sort by distance
+        var closestAttractions = attractions
+            .Select(attraction => new
+            {
+                Attraction = attraction,
+                Distance = _rewardsService.GetDistance(attraction, visitedLocation.Location)
+            })
+            .OrderBy(a => a.Distance)
+            .Take(5)
+            .Select(a => a.Attraction)
+            .ToList();
+
+        return closestAttractions;
+    }
+
+    public List<Attraction> GetNearByAttractionsProximity(VisitedLocation visitedLocation)
+    {
+        List<Attraction> nearbyAttractions = new();
         foreach (var attraction in _gpsUtil.GetAttractions())
         {
             if (_rewardsService.IsWithinAttractionProximity(attraction, visitedLocation.Location))
