@@ -12,18 +12,27 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v2
+      uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: '7.x'  # Adjust to your target .NET version
+        dotnet-version: '7.x'
 
     - name: Install dependencies
       run: dotnet restore
 
     - name: Build
       run: dotnet build --no-restore
+
+    - name: Build artifacts
+      run: dotnet publish --configuration Release --output ./publish
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: my-app-artifact
+        path: ./publish
 
     - name: Run tests
       run: dotnet test --no-build --verbosity normal
