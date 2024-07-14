@@ -1,4 +1,5 @@
 ﻿using GpsUtil.Location;
+using System.Collections.Concurrent;
 using TourGuide.LibrairiesWrappers.Interfaces;
 using TourGuide.Services.Interfaces;
 using TourGuide.Users;
@@ -32,26 +33,50 @@ public class RewardsService : IRewardsService
         _proximityBuffer = _defaultProximityBuffer;
     }
 
-    public void CalculateRewards(User user)
+    public async Task CalculateRewards(User user)
     {
         count++;
         List<VisitedLocation> userLocations = user.VisitedLocations;
         List<Attraction> attractions = _gpsUtil.GetAttractions();
 
+        // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
+        var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
+
+        var newRewards = new ConcurrentBag<UserReward>();
+
+        // Utiliser une liste de tâches pour paralléliser les boucles
+        var tasks = new List<Task>();
+
         foreach (var visitedLocation in userLocations)
         {
-            foreach (var attraction in attractions)
+            tasks.Add(Task.Run(() =>
             {
-                if (!user.UserRewards.Any(r => r.Attraction.AttractionName == attraction.AttractionName))
+                foreach (var attraction in attractions)
                 {
-                    if (NearAttraction(visitedLocation, attraction))
+                    if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
                     {
-                        user.AddUserReward(new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user)));
+                        if (NearAttraction(visitedLocation, attraction))
+                        {
+                            var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                            newRewards.Add(reward);
+                            attractionNamesWithRewards.Add(attraction.AttractionName);
+                        }
                     }
                 }
-            }
+            }));
+        }
+
+        // Attendre que toutes les tâches soient terminées
+        await Task.WhenAll(tasks);
+
+        // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
+        foreach (var reward in newRewards)
+        {
+            user.AddUserReward(reward);
         }
     }
+
+
 
     public bool IsWithinAttractionProximity(Attraction attraction, Locations location)
     {

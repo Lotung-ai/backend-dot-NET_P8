@@ -84,14 +84,12 @@ public class TourGuideService : ITourGuideService
 
     public async Task<VisitedLocation> TrackUserLocation(User user)
     {
-        return await Task.Run(() =>
-        {
-            VisitedLocation visitedLocation = _gpsUtil.GetUserLocation(user.UserId);
-            user.AddToVisitedLocations(visitedLocation);
-            _rewardsService.CalculateRewards(user);
-            return visitedLocation;
-        });
+        VisitedLocation visitedLocation = await Task.Run(() => _gpsUtil.GetUserLocation(user.UserId));
+        user.AddToVisitedLocations(visitedLocation);
+        await _rewardsService.CalculateRewards(user);
+        return visitedLocation;
     }
+
 
     public List<Attraction> GetNearByAttractions(VisitedLocation visitedLocation)
     {

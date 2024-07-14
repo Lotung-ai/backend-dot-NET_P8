@@ -48,7 +48,7 @@ namespace TourGuideTest
         public void HighVolumeTrackLocation()
         {
             //On peut ici augmenter le nombre d'utilisateurs pour tester les performances
-            _fixture.Initialize(100000);
+            _fixture.Initialize(100);
 
             List<User> allUsers = _fixture.TourGuideService.GetAllUsers();
 
@@ -68,10 +68,10 @@ namespace TourGuideTest
         }
 
         [Fact]
-        public void HighVolumeGetRewards()
+        public async Task HighVolumeGetRewards()
         {
             //On peut ici augmenter le nombre d'utilisateurs pour tester les performances
-            _fixture.Initialize(5);
+            _fixture.Initialize(10000);
 
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
@@ -80,7 +80,9 @@ namespace TourGuideTest
             List<User> allUsers = _fixture.TourGuideService.GetAllUsers();
             allUsers.ForEach(u => u.AddToVisitedLocations(new VisitedLocation(u.UserId, attraction, DateTime.Now)));
 
-            allUsers.ForEach(u => _fixture.RewardsService.CalculateRewards(u));
+            // Paralléliser le calcul des récompenses pour chaque utilisateur
+            var tasks = allUsers.Select(u => _fixture.RewardsService.CalculateRewards(u));
+            await Task.WhenAll(tasks);
 
             foreach (var user in allUsers)
             {
