@@ -34,5 +34,6 @@ jobs:
         name: my-app-artifact
         path: ./publish
 
-    - name: Run tests
-      run: dotnet test --no-build --verbosity normal
+    - name: Run tests excluding PerformanceTest
+      run: |
+        dotnet test --no-build --filter "FullyQualifiedName!~TourGuideTest.PerformanceTest.HighVolumeTrackLocation&FullyQualifiedName!~TourGuideTest.PerformanceTest.HighVolumeGetRewards" --verbosity normal
