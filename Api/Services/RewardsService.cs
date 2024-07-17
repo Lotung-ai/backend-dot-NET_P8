@@ -45,29 +45,36 @@ public class RewardsService : IRewardsService
         var newRewards = new ConcurrentBag<UserReward>();
 
         // Utiliser une liste de tâches pour paralléliser les boucles
-        var tasks = new List<Task>();
+        var outerTasks = new List<Task>();
 
         foreach (var visitedLocation in userLocations)
         {
-            tasks.Add(Task.Run(() =>
+            outerTasks.Add(Task.Run(async () =>
             {
+                var innerTasks = new List<Task>();
+
                 foreach (var attraction in attractions)
                 {
-                    if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
+                    innerTasks.Add(Task.Run(() =>
                     {
-                        if (NearAttraction(visitedLocation, attraction))
+                        if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
                         {
-                            var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
-                            newRewards.Add(reward);
-                            attractionNamesWithRewards.Add(attraction.AttractionName);
+                            if (NearAttraction(visitedLocation, attraction))
+                            {
+                                var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                                newRewards.Add(reward);
+                                attractionNamesWithRewards.Add(attraction.AttractionName);
+                            }
                         }
-                    }
+                    }));
                 }
+
+                await Task.WhenAll(innerTasks);
             }));
         }
 
-        // Attendre que toutes les tâches soient terminées
-        await Task.WhenAll(tasks);
+        // Attendre que toutes les tâches extérieures soient terminées
+        await Task.WhenAll(outerTasks);
 
         // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
         foreach (var reward in newRewards)
@@ -75,8 +82,6 @@ public class RewardsService : IRewardsService
             user.AddUserReward(reward);
         }
     }
-
-
 
     public bool IsWithinAttractionProximity(Attraction attraction, Locations location)
     {
