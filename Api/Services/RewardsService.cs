@@ -33,56 +33,56 @@ public class RewardsService : IRewardsService
         _proximityBuffer = _defaultProximityBuffer;
     }
 
-    public async Task CalculateRewards(User user)
-    {
-        count++;
-        List<VisitedLocation> userLocations = user.VisitedLocations;
-        List<Attraction> attractions = _gpsUtil.GetAttractions();
-
-        // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
-        var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
-
-        var newRewards = new ConcurrentBag<UserReward>();
-
-        // Utiliser une liste de tâches pour paralléliser les boucles
-        var outerTasks = new List<Task>();
-
-        foreach (var visitedLocation in userLocations)
+        public async Task CalculateRewards(User user)
         {
-            outerTasks.Add(Task.Run(async () =>
+            count++;
+            List<VisitedLocation> userLocations = user.VisitedLocations;
+            List<Attraction> attractions = _gpsUtil.GetAttractions();
+
+            // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
+            var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
+
+            var newRewards = new ConcurrentBag<UserReward>();
+
+            // Utiliser une liste de tâches pour paralléliser les boucles
+            var outerTasks = new List<Task>();
+
+            foreach (var visitedLocation in userLocations)
             {
-                var innerTasks = new List<Task>();
-
-                foreach (var attraction in attractions)
+                outerTasks.Add(Task.Run(async () =>
                 {
-                    innerTasks.Add(Task.Run(() =>
+                    var innerTasks = new List<Task>();
+
+                    foreach (var attraction in attractions)
                     {
-                        if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
+                        innerTasks.Add(Task.Run(() =>
                         {
-                            if (NearAttraction(visitedLocation, attraction))
+                            if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
                             {
-                                var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
-                                newRewards.Add(reward);
-                                attractionNamesWithRewards.Add(attraction.AttractionName);
+                                if (NearAttraction(visitedLocation, attraction))
+                                {
+                                    var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                                    newRewards.Add(reward);
+                                    attractionNamesWithRewards.Add(attraction.AttractionName);
+                                }
                             }
-                        }
-                    }));
-                }
+                        }));
+                    }
 
-                await Task.WhenAll(innerTasks);
-            }));
+                    await Task.WhenAll(innerTasks);
+                }));
+            }
+
+            // Attendre que toutes les tâches extérieures soient terminées
+            await Task.WhenAll(outerTasks);
+
+            // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
+            foreach (var reward in newRewards)
+            {
+                user.AddUserReward(reward);
+            }
         }
-
-        // Attendre que toutes les tâches extérieures soient terminées
-        await Task.WhenAll(outerTasks);
-
-        // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
-        foreach (var reward in newRewards)
-        {
-            user.AddUserReward(reward);
-        }
-    }
-
+  
     public bool IsWithinAttractionProximity(Attraction attraction, Locations location)
     {
         Console.WriteLine(GetDistance(attraction, location));
