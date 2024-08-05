@@ -1,8 +1,10 @@
 ﻿using GpsUtil.Location;
+using System;
 using System.Collections.Concurrent;
 using TourGuide.LibrairiesWrappers.Interfaces;
 using TourGuide.Services.Interfaces;
 using TourGuide.Users;
+using System.Threading;
 
 namespace TourGuide.Services;
 
@@ -19,7 +21,7 @@ public class RewardsService : IRewardsService
     public RewardsService(IGpsUtil gpsUtil, IRewardCentral rewardCentral)
     {
         _gpsUtil = gpsUtil;
-        _rewardsCentral =rewardCentral;
+        _rewardsCentral = rewardCentral;
         _proximityBuffer = _defaultProximityBuffer;
     }
 
@@ -33,56 +35,172 @@ public class RewardsService : IRewardsService
         _proximityBuffer = _defaultProximityBuffer;
     }
 
-        public async Task CalculateRewards(User user)
+     public async Task CalculateRewards(User user)
+     {
+         count++;
+         List<VisitedLocation> userLocations = user.VisitedLocations;
+         List<Attraction> attractions = _gpsUtil.GetAttractions();
+
+         // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
+         var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
+
+         var newRewards = new ConcurrentBag<UserReward>();
+
+         // Utiliser une liste de tâches pour paralléliser les boucles
+         var outerTasks = new List<Task>();
+
+
+          foreach (var visitedLocation in userLocations)
+          {
+              outerTasks.Add(Task.Run(async () =>
+              {
+                  var innerTasks = new List<Task>();
+
+                  foreach (var attraction in attractions)
+                  {
+                      innerTasks.Add(Task.Run(() =>
+                      {
+                          if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
+                          {
+                              if (NearAttraction(visitedLocation, attraction))
+                              {
+                                  var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                                  newRewards.Add(reward);
+                                  attractionNamesWithRewards.Add(attraction.AttractionName);
+                              }
+                          }
+                      }));
+                  }
+
+                  await Task.WhenAll(innerTasks);
+              }));
+          }
+
+         // Attendre que toutes les tâches extérieures soient terminées
+          await Task.WhenAll(outerTasks);
+
+         // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
+         foreach (var reward in newRewards)
+         {
+             user.AddUserReward(reward);
+         }
+     }
+
+    /*  public void CalculateRewards(User user)
+      {
+          count++;
+          List<VisitedLocation> userLocations = user.VisitedLocations;
+          List<Attraction> attractions = _gpsUtil.GetAttractions();
+
+          // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
+          var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
+
+          var newRewards = new ConcurrentBag<UserReward>();
+
+
+          List<Thread> threads = new List<Thread>();
+
+          foreach (var visitedLocation in userLocations)
+          {
+              threads.Add(new Thread(new ThreadStart(() =>
+          {
+              foreach (var attraction in attractions)
+              {
+
+                  if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
+                  {
+                      if (NearAttraction(visitedLocation, attraction))
+                      {
+                          var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                          newRewards.Add(reward);
+                          attractionNamesWithRewards.Add(attraction.AttractionName);
+                      }
+                  }
+              }
+          })));
+          }
+          foreach (Thread thread in threads)
+          {
+              thread.Start();
+          }
+          foreach (Thread thread in threads)
+          {
+              thread.Join();
+          }
+
+          // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
+          foreach (var reward in newRewards)
+          {
+              user.AddUserReward(reward);
+          }
+      }
+ */
+  /*  // Fonctionne mais pas très performant
+    public void CalculateRewards(User user)
+    {
+        count++;
+        List<VisitedLocation> userLocations = user.VisitedLocations;
+        List<Attraction> attractions = _gpsUtil.GetAttractions();
+
+        // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
+        var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
+
+        var newRewards = new ConcurrentBag<UserReward>();
+
+        List<Thread> threads = userLocations.Select(visitedLocation =>
         {
-            count++;
-            List<VisitedLocation> userLocations = user.VisitedLocations;
-            List<Attraction> attractions = _gpsUtil.GetAttractions();
-
-            // Utiliser un HashSet pour vérifier rapidement si une récompense a déjà été ajoutée
-            var attractionNamesWithRewards = new HashSet<string>(user.UserRewards.Select(r => r.Attraction.AttractionName));
-
-            var newRewards = new ConcurrentBag<UserReward>();
-
-            // Utiliser une liste de tâches pour paralléliser les boucles
-            var outerTasks = new List<Task>();
-
-            foreach (var visitedLocation in userLocations)
+            return new Thread(() =>
             {
-                outerTasks.Add(Task.Run(async () =>
+                Parallel.ForEach(attractions, attraction =>
                 {
-                    var innerTasks = new List<Task>();
-
-                    foreach (var attraction in attractions)
+                    if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
                     {
-                        innerTasks.Add(Task.Run(() =>
+                        if (NearAttraction(visitedLocation, attraction))
                         {
-                            if (!attractionNamesWithRewards.Contains(attraction.AttractionName))
+                            var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
+                            newRewards.Add(reward);
+
+                            lock (attractionNamesWithRewards)
                             {
-                                if (NearAttraction(visitedLocation, attraction))
-                                {
-                                    var reward = new UserReward(visitedLocation, attraction, GetRewardPoints(attraction, user));
-                                    newRewards.Add(reward);
-                                    attractionNamesWithRewards.Add(attraction.AttractionName);
-                                }
+                                attractionNamesWithRewards.Add(attraction.AttractionName);
                             }
-                        }));
+                        }
                     }
+                });
+            });
+        }).ToList();
 
-                    await Task.WhenAll(innerTasks);
-                }));
-            }
-
-            // Attendre que toutes les tâches extérieures soient terminées
-            await Task.WhenAll(outerTasks);
-
-            // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
-            foreach (var reward in newRewards)
-            {
-                user.AddUserReward(reward);
-            }
+        // Démarrer tous les threads
+        foreach (var thread in threads)
+        {
+            thread.Start();
         }
-  
+
+        // Attendre que tous les threads se terminent
+        foreach (var thread in threads)
+        {
+            thread.Join();
+        }
+
+        // Ajouter toutes les nouvelles récompenses après avoir terminé l'énumération
+        foreach (var reward in newRewards)
+        {
+            user.AddUserReward(reward);
+        }
+    }*/
+
+
+    // Méthode utilitaire pour diviser une liste en sous-listes
+    private List<List<T>> SplitList<T>(List<T> list, int chunkSize)
+    {
+        var result = new List<List<T>>();
+        for (int i = 0; i < list.Count; i += chunkSize)
+        {
+            result.Add(list.Skip(i).Take(chunkSize).ToList());
+        }
+        return result;
+    }
+
     public bool IsWithinAttractionProximity(Attraction attraction, Locations location)
     {
         Console.WriteLine(GetDistance(attraction, location));
